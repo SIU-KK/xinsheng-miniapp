@@ -40,7 +40,3 @@ DeepSeek / xAI / Gemini 密钥只在 Vite 中间件服务端读取，不会进�
 - **密钥**：在 Space → Settings → Secrets 中设置 `DEEPSEEK_API_KEY`（切勿写入仓库）
 - **免费 CPU**：空闲一段时间后可能休眠，下次访问会冷启动
 - 详见仓库根目录 `DEPLOY.md`
-
-## 部署
-
-优先 Hugging Face Spaces（Docker，PORT 7860）。步骤见 DEPLOY.md。
