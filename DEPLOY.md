@@ -1,30 +1,23 @@
-# Render 免费部署说明
+# 部署说明（Hugging Face Spaces 为主）
 
-## 概要
+## Hugging Face Spaces（推荐）
 
-本项目可按 Render 风格 Node Web Service 部署（见仓库根目录 `render.yaml`）。
+本仓库根目录已备好 **Dockerfile**（PORT=7860）与 **.dockerignore**，适合 Docker SDK Space。
 
-## 部署步骤
+1. 在 https://huggingface.co/spaces 新建 Space，选 Docker SDK。
+2. 连接本 GitHub 仓库（或推送到 Space 仓库），HF 按 Dockerfile 构建。
+3. 在 Space Settings → Variables and secrets 设置 DEEPSEEK_API_KEY（必填）。
+4. Optional: GEMINI_API_KEY / XAI_API_KEY.
+5. Listens on port 7860.
 
-1. 将仓库连接到 Render（或手动 New → Web Service）。
-2. 使用 Blueprint / `render.yaml`，或手动设置：
-   - **Build**: `npm install && npm run build`
-   - **Start**: `npm start`
-   - **Node**: 建议 22（`NODE_VERSION=22`）
-3. 在 Dashboard → Environment 中设置 **`DEEPSEEK_API_KEY`**（必填，云上无本地密钥文件）。
-4. 可选：`GEMINI_API_KEY` / `XAI_API_KEY`（或 `GEMINI_KEY` / `XAI_KEY`）。
+### Notes
+- No persistent disk by default; SQLite may be lost on rebuild.
+- Do not commit API keys; use Space Secrets.
 
-本地开发：环境变量为空时，仍会回退到 box 上的 connector-secrets 文件路径。
+## Render (optional)
 
-## 免费套餐注意
+See render.yaml. Node 22. Same build and start as package.json scripts.
 
-- **休眠**：约 **15 分钟**无流量后实例会休眠，下次访问需冷启动（可能几十秒）。
-- **磁盘短暂**：免费磁盘在 **重新部署 / 重启** 后可能清空。本应用用 SQLite（`data/*.db`）时，云上数据**不可当作持久存储**；重要数据请外置数据库或对象存储。
-- **密钥**：切勿把 API Key 提交进 Git。仅在 Render Dashboard 配置环境变量。
+## Local preview
 
-## 本地预览（模拟 Render）
-
-```bash
-npm run build
-PORT=4173 npm start
-```
+Build then start with PORT 7860 (see package.json scripts).

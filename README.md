@@ -32,3 +32,15 @@ DeepSeek / xAI / Gemini 密钥只在 Vite 中间件服务端读取，不会进�
 在会话输入框点 **+** 选微信聊天截图（jpeg/png/webp，客户端压到约 1.2MB）。线程里先出现缩略图，再「正在写…」，然后按同一套教练栏给出【大哥心态】【你的心情】【你的语气】【分析】可复制私聊1/2 和【下一步】。
 
 白气泡是老板，绿气泡是主播。刚要完钱后不要马上再要。读图用 DeepSeek `deepseek-v4-flash-vision-exp`。
+
+## Hugging Face Spaces 部署（Docker，免信用卡）
+
+- **SDK**：Docker
+- **端口**：应用监听 **7860**（`PORT=7860`）
+- **密钥**：在 Space → Settings → Secrets 中设置 `DEEPSEEK_API_KEY`（切勿写入仓库）
+- **免费 CPU**：空闲一段时间后可能休眠，下次访问会冷启动
+- 详见仓库根目录 `DEPLOY.md`
+
+## 部署
+
+优先 Hugging Face Spaces（Docker，PORT 7860）。步骤见 DEPLOY.md。
