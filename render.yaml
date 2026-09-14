@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: xinsheng-miniapp
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: "22"
