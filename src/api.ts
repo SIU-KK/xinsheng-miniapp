@@ -71,15 +71,80 @@ export async function fetchMe(): Promise<AuthUser | null> {
   }
 }
 
-export async function registerAccount(username: string, password: string): Promise<AuthUser> {
+export type RegisterResult =
+  | { pending: true; message: string }
+  | { pending: false; user: AuthUser }
+
+export async function registerAccount(username: string, password: string): Promise<RegisterResult> {
   const { res, data } = await request('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
   })
   if (!res.ok) throw new Error(toUserError(typeof data.error === 'string' ? data.error : '注册失败', '注册失败，请重试'))
+  if (data.pending) {
+    return {
+      pending: true,
+      message: typeof data.message === 'string' ? data.message : '注册已提交，等待管理员确认',
+    }
+  }
   const user = data.user as AuthUser | undefined
   if (!user?.id || !user.username) throw new Error('注册失败，请重试')
-  return user
+  return { pending: false, user }
+}
+
+export type AdminUser = { id: string; username: string; status: 'pending' | 'approved'; created_at: number }
+
+export async function fetchAdminUsers(): Promise<AdminUser[]> {
+  const { res, data } = await request('/api/admin/users')
+  if (res.status === 401) throw new Error('unauthorized')
+  if (!res.ok) throw new Error(toUserError(typeof data.error === 'string' ? data.error : '加载失败', '加载失败，请重试'))
+  const list = Array.isArray(data.users) ? data.users : []
+  return list
+    .map((raw) => {
+      if (!raw || typeof raw !== 'object') return null
+      const u = raw as Record<string, unknown>
+      if (typeof u.id !== 'string' || typeof u.username !== 'string') return null
+      const status = u.status === 'pending' ? 'pending' : 'approved'
+      return {
+        id: u.id,
+        username: u.username,
+        status: status as 'pending' | 'approved',
+        created_at: typeof u.created_at === 'number' ? u.created_at : 0,
+      }
+    })
+    .filter((x): x is AdminUser => !!x)
+}
+
+export async function approveAdminUser(id: string): Promise<AdminUser> {
+  const { res, data } = await request('/api/admin/users/' + encodeURIComponent(id) + '/approve', {
+    method: 'POST',
+  })
+  if (res.status === 401) throw new Error('unauthorized')
+  if (!res.ok) throw new Error(toUserError(typeof data.error === 'string' ? data.error : '同意失败', '同意失败，请重试'))
+  const user = data.user as AdminUser | undefined
+  if (!user?.id || !user.username) throw new Error('同意失败，请重试')
+  return {
+    id: user.id,
+    username: user.username,
+    status: 'approved',
+    created_at: typeof user.created_at === 'number' ? user.created_at : 0,
+  }
+}
+
+export async function rejectAdminUser(id: string): Promise<void> {
+  const { res, data } = await request('/api/admin/users/' + encodeURIComponent(id) + '/reject', {
+    method: 'POST',
+  })
+  if (res.status === 401) throw new Error('unauthorized')
+  if (!res.ok) throw new Error(toUserError(typeof data.error === 'string' ? data.error : '拒绝失败', '拒绝失败，请重试'))
+}
+
+export async function removeAdminUser(id: string): Promise<void> {
+  const { res, data } = await request('/api/admin/users/' + encodeURIComponent(id), {
+    method: 'DELETE',
+  })
+  if (res.status === 401) throw new Error('unauthorized')
+  if (!res.ok) throw new Error(toUserError(typeof data.error === 'string' ? data.error : '移除失败', '移除失败，请重试'))
 }
 
 export async function loginAccount(username: string, password: string): Promise<AuthUser> {

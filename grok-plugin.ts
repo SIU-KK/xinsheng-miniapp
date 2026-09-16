@@ -55,17 +55,22 @@ import type { GiftPhase, HomepageSignals, NextAction, PersonaId, ReplyScript } f
 import {
   addEpisodicFacts,
   appendMessage,
+  approveUser,
   clearSessionCookie,
   createThread,
   deleteThread,
   getThread,
+  isAdminUsername,
   listMessages,
   listThreads,
+  listUsersForAdmin,
   loginUser,
   logoutToken,
   openDb,
   parseCookie,
   registerUser,
+  rejectUser,
+  removeUser,
   searchEpisodicFacts,
   setSessionCookie,
   updateThread,
@@ -1679,8 +1684,7 @@ async function handleAppApi(req: IncomingMessage, res: ServerResponse, url: stri
       json(res, out.status, { ok: false, error: out.error })
       return true
     }
-    res.setHeader('Set-Cookie', setSessionCookie(out.token))
-    json(res, 200, { ok: true, user: out.user })
+    json(res, 201, { ok: true, pending: true, user: out.user, message: '注册已提交，等待管理员确认' })
     return true
   }
 
@@ -1714,6 +1718,83 @@ async function handleAppApi(req: IncomingMessage, res: ServerResponse, url: stri
       return true
     }
     json(res, 200, { ok: true, user })
+    return true
+  }
+
+  if (url === '/api/admin/users' && method === 'GET') {
+    const user = await currentUser(req)
+    if (!user) {
+      json(res, 401, { ok: false, error: 'unauthorized' })
+      return true
+    }
+    if (!isAdminUsername(user.username)) {
+      json(res, 403, { ok: false, error: '需要管理员权限' })
+      return true
+    }
+    const users = await listUsersForAdmin()
+    json(res, 200, { ok: true, users })
+    return true
+  }
+
+  const adminApprove = url.match(/^\/api\/admin\/users\/([^/]+)\/approve$/)
+  if (adminApprove && method === 'POST') {
+    const user = await currentUser(req)
+    if (!user) {
+      json(res, 401, { ok: false, error: 'unauthorized' })
+      return true
+    }
+    if (!isAdminUsername(user.username)) {
+      json(res, 403, { ok: false, error: '需要管理员权限' })
+      return true
+    }
+    const out = await approveUser(decodeURIComponent(adminApprove[1]))
+    if (!out.ok) {
+      json(res, out.status, { ok: false, error: out.error })
+      return true
+    }
+    json(res, 200, { ok: true, user: out.user })
+    return true
+  }
+
+  const adminReject = url.match(/^\/api\/admin\/users\/([^/]+)\/reject$/)
+  if (adminReject && method === 'POST') {
+    const user = await currentUser(req)
+    if (!user) {
+      json(res, 401, { ok: false, error: 'unauthorized' })
+      return true
+    }
+    if (!isAdminUsername(user.username)) {
+      json(res, 403, { ok: false, error: '需要管理员权限' })
+      return true
+    }
+    const out = await rejectUser(decodeURIComponent(adminReject[1]))
+    if (!out.ok) {
+      json(res, out.status, { ok: false, error: out.error })
+      return true
+    }
+    json(res, 200, { ok: true })
+    return true
+  }
+
+  const adminRemove = url.match(/^\/api\/admin\/users\/([^/]+)\/remove$/)
+  const adminDelete = url.match(/^\/api\/admin\/users\/([^/]+)$/)
+  if ((adminRemove && method === 'POST') || (adminDelete && method === 'DELETE')) {
+    const user = await currentUser(req)
+    if (!user) {
+      json(res, 401, { ok: false, error: 'unauthorized' })
+      return true
+    }
+    if (!isAdminUsername(user.username)) {
+      json(res, 403, { ok: false, error: '需要管理员权限' })
+      return true
+    }
+    const targetId = decodeURIComponent((adminRemove || adminDelete)![1])
+    const out = await removeUser(targetId)
+    if (!out.ok) {
+      json(res, out.status, { ok: false, error: out.error })
+      return true
+    }
+    json(res, 200, { ok: true })
     return true
   }
 

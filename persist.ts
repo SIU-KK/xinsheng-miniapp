@@ -19,6 +19,14 @@ const SCRYPT_KEYLEN = 64
 
 export type UserRow = { id: string; username: string }
 
+export type UserStatus = 'pending' | 'approved'
+
+export type AdminUserRow = { id: string; username: string; status: UserStatus; created_at: number }
+
+export function isAdminUsername(username: string) {
+  return username.trim().toLowerCase() === 'admin'
+}
+
 let db: Database | null = null
 let saving = Promise.resolve()
 
@@ -91,8 +99,41 @@ export async function openDb(): Promise<Database> {
     );
     CREATE INDEX IF NOT EXISTS idx_episodic_thread ON episodic_facts(thread_id, user_id, created_at);
   `)
+  migrateUsers(db)
+  await ensureAdminUser(db)
   persistNow()
   return db
+}
+
+function tableHasColumn(database: Database, table: string, column: string) {
+  const cols = all<{ name: string }>(database, `PRAGMA table_info(${table})`, [])
+  return cols.some((c) => c.name === column)
+}
+
+function migrateUsers(database: Database) {
+  if (!tableHasColumn(database, 'users', 'status')) {
+    database.run(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'`)
+  }
+  database.run(`UPDATE users SET status = 'approved' WHERE status IS NULL OR status = ''`)
+}
+
+async function ensureAdminUser(database: Database) {
+  const existing = one<{ id: string; password_hash: string; status: string }>(
+    database,
+    `SELECT id, password_hash, status FROM users WHERE username = ? COLLATE NOCASE`,
+    ['admin'],
+  )
+  if (!existing) {
+    const password_hash = await hashPassword('99267')
+    database.run(
+      `INSERT INTO users (id, username, password_hash, created_at, status) VALUES (?, ?, ?, ?, ?)`,
+      [uid('u-'), 'admin', password_hash, Date.now(), 'approved'],
+    )
+    return
+  }
+  if (existing.status !== 'approved') {
+    database.run(`UPDATE users SET status = 'approved' WHERE id = ?`, [existing.id])
+  }
 }
 
 function one<T>(database: Database, sql: string, params: (string | number)[]): T | null {
@@ -168,44 +209,131 @@ export function validateCredentials(username: string, password: string): string 
   const u = normalizeUsername(username)
   if (u.length < 2 || u.length > 32) return '用户名需要 2–32 个字符'
   if (!/^[\p{L}\p{N}_.-]+$/u.test(u)) return '用户名只能含字母、数字、._-'
-  if (password.length < 6 || password.length > 72) return '密码需要 6–72 个字符'
+  if (password.length < 5 || password.length > 72) return '密码需要 5–72 个字符'
   return null
 }
 
-export async function registerUser(username: string, password: string): Promise<{ ok: true; user: UserRow; token: string } | { ok: false; error: string; status: number }> {
+export async function registerUser(username: string, password: string): Promise<{ ok: true; pending: true; user: UserRow } | { ok: false; error: string; status: number }> {
   const database = await openDb()
   const err = validateCredentials(username, password)
   if (err) return { ok: false, error: err, status: 400 }
   const u = normalizeUsername(username)
+  if (isAdminUsername(u)) return { ok: false, error: '用户名已被占用', status: 409 }
   const existing = one<{ id: string }>(database, 'SELECT id FROM users WHERE username = ? COLLATE NOCASE', [u])
   if (existing) return { ok: false, error: '用户名已被占用', status: 409 }
   const id = uid('u-')
   const password_hash = await hashPassword(password)
-  database.run('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)', [
+  database.run('INSERT INTO users (id, username, password_hash, created_at, status) VALUES (?, ?, ?, ?, ?)', [
     id,
     u,
     password_hash,
     Date.now(),
+    'pending',
   ])
-  const token = await issueToken(id)
   scheduleSave()
-  return { ok: true, user: { id, username: u }, token }
+  return { ok: true, pending: true, user: { id, username: u } }
 }
 
 export async function loginUser(username: string, password: string): Promise<{ ok: true; user: UserRow; token: string } | { ok: false; error: string; status: number }> {
   const database = await openDb()
   const u = normalizeUsername(username)
-  const row = one<{ id: string; username: string; password_hash: string }>(
+  const row = one<{ id: string; username: string; password_hash: string; status: string }>(
     database,
-    'SELECT id, username, password_hash FROM users WHERE username = ? COLLATE NOCASE',
+    'SELECT id, username, password_hash, status FROM users WHERE username = ? COLLATE NOCASE',
     [u],
   )
   if (!row) return { ok: false, error: '用户名或密码不对', status: 401 }
   const good = await verifyPassword(password, row.password_hash)
   if (!good) return { ok: false, error: '用户名或密码不对', status: 401 }
+  if ((row.status || 'approved') !== 'approved') {
+    return { ok: false, error: '账号待管理员确认', status: 403 }
+  }
   const token = await issueToken(row.id)
   scheduleSave()
   return { ok: true, user: { id: row.id, username: row.username }, token }
+}
+
+export async function listUsersForAdmin(): Promise<AdminUserRow[]> {
+  const database = await openDb()
+  const rows = all<{ id: string; username: string; status: string; created_at: number }>(
+    database,
+    `SELECT id, username, status, created_at FROM users ORDER BY
+      CASE WHEN status = 'pending' THEN 0 ELSE 1 END,
+      created_at DESC`,
+    [],
+  )
+  return rows.map((r) => ({
+    id: r.id,
+    username: r.username,
+    status: (r.status === 'pending' ? 'pending' : 'approved') as UserStatus,
+    created_at: Number(r.created_at) || 0,
+  }))
+}
+
+export async function approveUser(userId: string): Promise<{ ok: true; user: AdminUserRow } | { ok: false; error: string; status: number }> {
+  const database = await openDb()
+  const row = one<{ id: string; username: string; status: string; created_at: number }>(
+    database,
+    'SELECT id, username, status, created_at FROM users WHERE id = ?',
+    [userId],
+  )
+  if (!row) return { ok: false, error: '用户不存在', status: 404 }
+  database.run(`UPDATE users SET status = 'approved' WHERE id = ?`, [userId])
+  scheduleSave()
+  return {
+    ok: true,
+    user: {
+      id: row.id,
+      username: row.username,
+      status: 'approved',
+      created_at: Number(row.created_at) || 0,
+    },
+  }
+}
+
+function deleteUserCascade(database: Database, userId: string) {
+  database.run('DELETE FROM tokens WHERE user_id = ?', [userId])
+  database.run('DELETE FROM messages WHERE user_id = ?', [userId])
+  database.run('DELETE FROM episodic_facts WHERE user_id = ?', [userId])
+  database.run('DELETE FROM threads WHERE user_id = ?', [userId])
+  database.run('DELETE FROM users WHERE id = ?', [userId])
+}
+
+/** Reject a pending registration: delete the user row (+ tokens/related rows). */
+export async function rejectUser(
+  userId: string,
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const database = await openDb()
+  const row = one<{ id: string; username: string; status: string }>(
+    database,
+    'SELECT id, username, status FROM users WHERE id = ?',
+    [userId],
+  )
+  if (!row) return { ok: false, error: '用户不存在', status: 404 }
+  if (isAdminUsername(row.username)) return { ok: false, error: '不能拒绝管理员账号', status: 403 }
+  if ((row.status || 'approved') !== 'pending') {
+    return { ok: false, error: '只能拒绝待确认账号', status: 400 }
+  }
+  deleteUserCascade(database, userId)
+  scheduleSave()
+  return { ok: true }
+}
+
+/** Remove an approved (or any non-admin) account: cascade tokens/threads/messages/facts. */
+export async function removeUser(
+  userId: string,
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const database = await openDb()
+  const row = one<{ id: string; username: string; status: string }>(
+    database,
+    'SELECT id, username, status FROM users WHERE id = ?',
+    [userId],
+  )
+  if (!row) return { ok: false, error: '用户不存在', status: 404 }
+  if (isAdminUsername(row.username)) return { ok: false, error: '不能移除管理员账号', status: 403 }
+  deleteUserCascade(database, userId)
+  scheduleSave()
+  return { ok: true }
 }
 
 async function issueToken(userId: string) {

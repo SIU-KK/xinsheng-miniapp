@@ -8,3 +8,4 @@ data/*.db.tmp
 secrets
 *.pem
 *.key
+.tunnel-url

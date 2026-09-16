@@ -859,6 +859,8 @@ button { touch-action: manipulation; }
 .mine-tile:nth-child(5) .mine-glyph { color: #c4a8e8; }
 .mine-tile:nth-child(6) .mine-glyph { color: #e8c9a0; }
 .mine-tile:nth-child(7) .mine-glyph { color: #d4a0c8; }
+.mine-tile:nth-child(8) .mine-glyph { color: #a0c8e8; }
+.mine-tile:nth-child(9) .mine-glyph { color: #e8b0a0; }
 .mine-label {
   font-size: 12px;
   line-height: 1.3;
@@ -1673,4 +1675,125 @@ button { touch-action: manipulation; }
 .rec-article ol li::marker {
   color: var(--gold-dim);
   font-weight: 650;
+}
+
+.auth-notice {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--teal);
+}
+.mine-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mine-admin-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #161618;
+  border: 1px solid #2c2c2e;
+}
+.mine-admin-main {
+  flex: 1;
+  min-width: 0;
+}
+.mine-admin-name {
+  font-size: 15px;
+  font-weight: 650;
+  color: #f0f0f2;
+  word-break: break-all;
+}
+.mine-admin-meta {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mine-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.mine-admin-badge.pending {
+  color: #f0c98a;
+  background: rgba(240, 201, 138, 0.12);
+  border: 1px solid rgba(240, 201, 138, 0.28);
+}
+.mine-admin-badge.approved {
+  color: #7ec8c0;
+  background: rgba(126, 200, 192, 0.12);
+  border: 1px solid rgba(126, 200, 192, 0.28);
+}
+.mine-admin-approve {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #3a3228;
+  background: linear-gradient(180deg, #2a241c 0%, #1c1814 100%);
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.mine-admin-approve:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mine-admin-approve:active:not(:disabled) {
+  opacity: 0.85;
+}
+
+.mine-admin-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+}
+.mine-admin-reject {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #3a2828;
+  background: linear-gradient(180deg, #2a1c1c 0%, #1c1414 100%);
+  color: #e89a9a;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.mine-admin-reject:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mine-admin-reject:active:not(:disabled) {
+  opacity: 0.85;
+}
+.mine-admin-remove {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #3a2c2c;
+  background: linear-gradient(180deg, #241c1c 0%, #181414 100%);
+  color: #d8a0a0;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.mine-admin-remove:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.mine-admin-remove:active:not(:disabled) {
+  opacity: 0.85;
 }

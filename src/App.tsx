@@ -1217,19 +1217,33 @@ function AuthScreen({
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
+  const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit() {
     const u = username.trim()
-    if (!u || password.length < 6) {
-      setErr(!u ? '请填写用户名' : '密码至少 6 位')
+    if (!u || password.length < 5) {
+      setNotice('')
+      setErr(!u ? '请填写用户名' : '密码至少 5 位')
       return
     }
     setBusy(true)
     setErr('')
+    setNotice('')
     try {
-      const user = mode === 'register' ? await registerAccount(u, password) : await loginAccount(u, password)
-      onAuthed(user)
+      if (mode === 'register') {
+        const result = await registerAccount(u, password)
+        if (result.pending) {
+          setMode('login')
+          setPassword('')
+          setNotice(result.message)
+          return
+        }
+        onAuthed(result.user)
+      } else {
+        const user = await loginAccount(u, password)
+        onAuthed(user)
+      }
     } catch (e) {
       setErr(toUserError(e, mode === 'register' ? '注册失败，请重试' : '登录失败，请重试'))
     } finally {
@@ -1265,9 +1279,10 @@ function AuthScreen({
             if (e.key === 'Enter') void submit()
           }}
         />
+        {notice ? <p className="auth-notice">{notice}</p> : null}
         {err ? <p className="err">{err}</p> : null}
         <button type="button" className="primary" disabled={busy} onClick={() => void submit()}>
-          {busy ? '请稍候…' : mode === 'register' ? '注册并进入' : '登录'}
+          {busy ? '请稍候…' : mode === 'register' ? '提交注册' : '登录'}
         </button>
         <button
           type="button"
@@ -1275,6 +1290,7 @@ function AuthScreen({
           onClick={() => {
             setMode(mode === 'login' ? 'register' : 'login')
             setErr('')
+            setNotice('')
           }}
         >
           {mode === 'login' ? '没有账号？注册' : '已有账号？登录'}

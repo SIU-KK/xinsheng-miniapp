@@ -1,7 +1,9 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { approveAdminUser, fetchAdminUsers, rejectAdminUser, removeAdminUser, type AdminUser } from './api'
 
 const DOWNLOAD_URL = 'https://vvxqiu.com/#/'
 const STREAMER_ENTRY_URL = 'https://f.kdocs.cn/g/Yoh6yviw/'
+const SALARY_QUERY_URL = 'https://www.kdocs.cn/etapps/query/q/regrCYpW'
 
 const PRANK_PRICE_ROWS: {
   diamonds: string
@@ -76,7 +78,7 @@ function OnboardApplyPage({ onBack }: { onBack: () => void }) {
         <button type="button" aria-label="back" onClick={onBack}>
           {'<'}
         </button>
-        <div className="title">入职申请</div>
+        <div className="title">入职流程</div>
         <span className="nav-side" />
       </div>
       <div className="mine-scroll mine-doc">
@@ -144,6 +146,34 @@ function OnboardApplyPage({ onBack }: { onBack: () => void }) {
             </div>
             <div className="mine-extra-row">提交后等待审核（通常很快）</div>
             <div className="mine-extra-row">完成后把 ID 发给管理确认</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+
+function HowToEnterHallPage({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="pane">
+      <div className="nav">
+        <button type="button" aria-label="back" onClick={onBack}>
+          {'<'}
+        </button>
+        <div className="title">如何进厅</div>
+        <span className="nav-side" />
+      </div>
+      <div className="mine-scroll mine-doc">
+        <section className="mine-sec">
+          <h2 className="mine-sec-title">如何进入工会厅</h2>
+          <div className="mine-steps">
+            <StepCard n={1}>点击下方导航 「我的」</StepCard>
+            <StepCard n={2}>进入资料（往下滑动）</StepCard>
+            <StepCard n={3}>
+              找到 <Mark>星月传媒</Mark>
+            </StepCard>
+            <StepCard n={4}>点击进入后，往下滑找到厅工会厅选择自己的所属厅</StepCard>
           </div>
         </section>
       </div>
@@ -781,12 +811,12 @@ function PmUnlockPage({ onBack }: { onBack: () => void }) {
         <button type="button" aria-label="back" onClick={onBack}>
           {'<'}
         </button>
-        <div className="title">私信解锁</div>
+        <div className="title">解锁私信</div>
         <span className="nav-side" />
       </div>
       <div className="mine-scroll mine-doc">
         <section className="mine-sec">
-          <h2 className="mine-sec-title">私信解锁要求</h2>
+          <h2 className="mine-sec-title">解锁私信要求</h2>
           <div className="mine-card mine-card-plain" style={{ marginBottom: 10 }}>
             根据累计开播时长解锁不同私聊权限：
           </div>
@@ -834,6 +864,210 @@ function PmUnlockPage({ onBack }: { onBack: () => void }) {
 }
 
 
+
+
+function formatCreatedAt(ts: number) {
+  if (!ts) return ''
+  try {
+    return new Date(ts).toLocaleString('zh-CN', { hour12: false })
+  } catch {
+    return ''
+  }
+}
+
+function isAdminName(username: string) {
+  return username.trim().toLowerCase() === 'admin'
+}
+
+function AdminUsersPage({ onBack }: { onBack: () => void }) {
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  async function load(opts?: { quiet?: boolean }) {
+    if (!opts?.quiet) setLoading(true)
+    setErr('')
+    try {
+      setUsers(await fetchAdminUsers())
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '加载失败，请重试')
+    } finally {
+      if (!opts?.quiet) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  async function approve(id: string) {
+    setBusyId(id)
+    setErr('')
+    try {
+      await approveAdminUser(id)
+      await load({ quiet: true })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '同意失败，请重试')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function reject(id: string) {
+    setBusyId(id)
+    setErr('')
+    try {
+      await rejectAdminUser(id)
+      await load({ quiet: true })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '拒绝失败，请重试')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function remove(id: string, username: string) {
+    if (!window.confirm(`确定移除账号「${username}」？此操作不可恢复。`)) return
+    setBusyId(id)
+    setErr('')
+    try {
+      await removeAdminUser(id)
+      await load({ quiet: true })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '移除失败，请重试')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="pane">
+      <div className="nav">
+        <button type="button" aria-label="back" onClick={onBack}>
+          {'<'}
+        </button>
+        <div className="title">注册列表</div>
+        <span className="nav-side" />
+      </div>
+      <div className="mine-scroll mine-doc">
+        <section className="mine-sec">
+          <h2 className="mine-sec-title">用户注册审核</h2>
+          {loading ? <div className="mine-card mine-card-plain">加载中…</div> : null}
+          {err ? <div className="mine-warn">{err}</div> : null}
+          {!loading ? (
+            <div className="mine-admin-list">
+              {users.length === 0 ? (
+                <div className="mine-card mine-card-plain">暂无用户</div>
+              ) : (
+                users.map((u) => {
+                  const adminRow = isAdminName(u.username)
+                  return (
+                    <div key={u.id} className="mine-admin-row">
+                      <div className="mine-admin-main">
+                        <div className="mine-admin-name">{u.username}</div>
+                        <div className="mine-admin-meta">
+                          <span className={u.status === 'pending' ? 'mine-admin-badge pending' : 'mine-admin-badge approved'}>
+                            {u.status === 'pending' ? '待确认' : '已通过'}
+                          </span>
+                          {u.created_at ? <span>{formatCreatedAt(u.created_at)}</span> : null}
+                        </div>
+                      </div>
+                      {u.status === 'pending' ? (
+                        <div className="mine-admin-actions">
+                          <button
+                            type="button"
+                            className="mine-admin-approve"
+                            disabled={busyId === u.id}
+                            onClick={() => void approve(u.id)}
+                          >
+                            {busyId === u.id ? '处理中…' : '同意'}
+                          </button>
+                          <button
+                            type="button"
+                            className="mine-admin-reject"
+                            disabled={busyId === u.id}
+                            onClick={() => void reject(u.id)}
+                          >
+                            拒绝
+                          </button>
+                        </div>
+                      ) : adminRow ? (
+                        <button type="button" className="mine-admin-remove" disabled title="不能移除管理员">
+                          移除账号
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="mine-admin-remove"
+                          disabled={busyId === u.id}
+                          onClick={() => void remove(u.id, u.username)}
+                        >
+                          {busyId === u.id ? '移除中…' : '移除账号'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function HallIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4.5 19.5h15M6 19.5V9.8L12 5l6 4.8v9.7"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 19.5v-5h4v5"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function SalaryIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4.5" y="5.5" width="15" height="13" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M8 9.5h8M8 12.5h5M8 15.5h3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function UsersIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.8 18.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4M14.2 14.8c1.5-.4 3.1.1 4.2 1.6.5.7.8 1.5.9 2.1"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
 
 function EntryIcon() {
   return (
@@ -1017,11 +1251,32 @@ export function MinePage({
   onLogout: () => void
   onLogin?: () => void
 }) {
-  const [view, setView] = useState<'list' | 'onboard' | 'prank' | 'growth' | 'comms' | 'pmUnlock'>('list')
+  type MineView = 'list' | 'onboard' | 'howEnter' | 'prank' | 'growth' | 'comms' | 'pmUnlock' | 'adminUsers'
+  const [view, setView] = useState<MineView>('list')
+  const [flash, setFlash] = useState<string | null>(null)
   const loggedIn = !!username
+  const isAdmin = username.trim().toLowerCase() === 'admin'
+
+  function requireLogin() {
+    setFlash('请先登录')
+    window.setTimeout(() => setFlash(null), 1600)
+    onLogin?.()
+  }
+
+  function openExternal(url: string) {
+    if (!loggedIn) {
+      requireLogin()
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   if (view === 'onboard') {
     return <OnboardApplyPage onBack={() => setView('list')} />
+  }
+
+  if (view === 'howEnter') {
+    return <HowToEnterHallPage onBack={() => setView('list')} />
   }
 
   if (view === 'prank') {
@@ -1040,6 +1295,10 @@ export function MinePage({
     return <PmUnlockPage onBack={() => setView('list')} />
   }
 
+  if (view === 'adminUsers') {
+    return <AdminUsersPage onBack={() => setView('list')} />
+  }
+
   return (
     <div className="pane">
       <div className="nav">
@@ -1056,25 +1315,37 @@ export function MinePage({
             <span className="mine-glyph">
               <ApplyIcon />
             </span>
-            <span className="mine-label">入职申请</span>
+            <span className="mine-label">入职流程</span>
           </button>
-          <button
-            type="button"
-            className="mine-tile"
-            onClick={() => {
-              window.open(STREAMER_ENTRY_URL, '_blank', 'noopener,noreferrer')
-            }}
-          >
+          <button type="button" className="mine-tile" onClick={() => setView('howEnter')}>
             <span className="mine-glyph">
-              <EntryIcon />
+              <HallIcon />
             </span>
-            <span className="mine-label">主播录入</span>
+            <span className="mine-label">如何进厅</span>
           </button>
           <button type="button" className="mine-tile" onClick={() => setView('prank')}>
             <span className="mine-glyph">
               <PrankIcon />
             </span>
-            <span className="mine-label">整蛊设置</span>
+            <span className="mine-label">设置整蛊</span>
+          </button>
+          <button type="button" className="mine-tile" onClick={() => setView('pmUnlock')}>
+            <span className="mine-glyph">
+              <UnlockIcon />
+            </span>
+            <span className="mine-label">解锁私信</span>
+          </button>
+          <button type="button" className="mine-tile" onClick={() => openExternal(SALARY_QUERY_URL)}>
+            <span className="mine-glyph">
+              <SalaryIcon />
+            </span>
+            <span className="mine-label">工资查询</span>
+          </button>
+          <button type="button" className="mine-tile" onClick={() => openExternal(STREAMER_ENTRY_URL)}>
+            <span className="mine-glyph">
+              <EntryIcon />
+            </span>
+            <span className="mine-label">主播录入</span>
           </button>
           <button type="button" className="mine-tile" onClick={() => setView('growth')}>
             <span className="mine-glyph">
@@ -1088,12 +1359,14 @@ export function MinePage({
             </span>
             <span className="mine-label">沟通技巧</span>
           </button>
-          <button type="button" className="mine-tile" onClick={() => setView('pmUnlock')}>
-            <span className="mine-glyph">
-              <UnlockIcon />
-            </span>
-            <span className="mine-label">私信解锁</span>
-          </button>
+          {isAdmin ? (
+            <button type="button" className="mine-tile" onClick={() => setView('adminUsers')}>
+              <span className="mine-glyph">
+                <UsersIcon />
+              </span>
+              <span className="mine-label">注册列表</span>
+            </button>
+          ) : null}
         </div>
         {loggedIn ? (
           <button type="button" className="mine-logout" onClick={onLogout}>
@@ -1105,6 +1378,7 @@ export function MinePage({
           </button>
         ) : null}
       </div>
+      {flash ? <div className="toast">{flash}</div> : null}
     </div>
   )
 }
