@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import { useBackHandler, BackScope } from './uxGestures'
 import {
   approveAdminUser,
@@ -1022,7 +1030,7 @@ export function AccountHeader({
       </div>
       <div className="mine-account-role">
         <strong>{role}</strong>
-        <small>所属厅 {hall || '—'}</small>
+        <small>所属厅号 {hall || '—'}</small>
       </div>
       {onLogout ? (
         <button type="button" className="nav-set mine-account-logout" onClick={onLogout}>
@@ -1093,7 +1101,48 @@ function profileToAdminFields(
   }
 }
 
-function AdminUsersPage({ onBack }: { onBack: () => void }) {
+/**
+ * Android WebView/Chrome can miss the native focus transition when a touch
+ * lands on an input inside a scrolling/expandable card. Keep these fields
+ * genuinely editable and focus them during the trusted pointer/touch event;
+ * importantly, never preventDefault here (that suppresses the keyboard).
+ */
+function AdminTextInput({
+  onPointerDown,
+  onTouchStart,
+  onClick,
+  type = 'text',
+  inputMode = type === 'number' ? 'decimal' : 'text',
+  ...props
+}: InputHTMLAttributes<HTMLInputElement>) {
+  function focusFromUserGesture(input: HTMLInputElement) {
+    if (input.disabled || input.readOnly) return
+    input.focus({ preventScroll: true })
+  }
+
+  return (
+    <input
+      {...props}
+      type={type}
+      inputMode={inputMode}
+      readOnly={false}
+      onPointerDown={(e: ReactPointerEvent<HTMLInputElement>) => {
+        onPointerDown?.(e)
+        if (!e.defaultPrevented) focusFromUserGesture(e.currentTarget)
+      }}
+      onTouchStart={(e) => {
+        onTouchStart?.(e)
+        if (!e.defaultPrevented) focusFromUserGesture(e.currentTarget)
+      }}
+      onClick={(e) => {
+        onClick?.(e)
+        if (!e.defaultPrevented) focusFromUserGesture(e.currentTarget)
+      }}
+    />
+  )
+}
+
+function AdminUsersPage({ onBack, canEdit = true }: { onBack: () => void; canEdit?: boolean }) {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
@@ -1264,7 +1313,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
       <div className="mine-scroll mine-doc">
         <section className="mine-sec">
           <h2 className="mine-sec-title">用户注册审核</h2>
-          <p className="mine-admin-hint">点击用户名展开资料与流水归属字段，可编辑后保存。</p>
+          <p className="mine-admin-hint">{canEdit ? '点击用户名展开资料与流水归属字段，可编辑后保存。' : '仅显示所属本厅账号；可同意或拒绝待确认注册。'}</p>
           {loading ? <div className="mine-card mine-card-plain">加载中…</div> : null}
           {err ? <div className="mine-warn">{err}</div> : null}
           {!loading ? (
@@ -1324,6 +1373,10 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                               拒绝
                             </button>
                           </div>
+                        ) : !canEdit ? (
+                          <button type="button" className="mine-admin-remove" disabled title="厅管/厅主仅可审核注册">
+                            仅可审核
+                          </button>
                         ) : adminRow ? (
                           <button type="button" className="mine-admin-remove" disabled title="不能移除管理员">
                             移除账号
@@ -1348,7 +1401,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                             <div className="mine-admin-form">
                               <label className="field-label">
                                 主播名
-                                <input
+                                <AdminTextInput
                                   className="textin"
                                   value={detailForm.name}
                                   onChange={(e) => setField('name', e.target.value)}
@@ -1357,7 +1410,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                               </label>
                               <label className="field-label">
                                 ID
-                                <input
+                                <AdminTextInput
                                   className="textin"
                                   value={detailForm.streamerId}
                                   onChange={(e) => setField('streamerId', e.target.value)}
@@ -1366,8 +1419,9 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                               </label>
                               <label className="field-label">
                                 所属厅号
-                                <input
+                                <AdminTextInput
                                   className="textin"
+                                  inputMode="numeric"
                                   value={detailForm.hallNo}
                                   onChange={(e) => setField('hallNo', e.target.value)}
                                   placeholder="厅号"
@@ -1410,7 +1464,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                                   </span>
                                   <label className="field-label" style={{ marginTop: 8 }}>
                                     厅点位
-                                    <input
+                                    <AdminTextInput
                                       className="textin"
                                       type="number"
                                       step="0.01"
@@ -1432,7 +1486,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                                   </label>
                                   <label className="field-label">
                                     用户流水点位
-                                    <input
+                                    <AdminTextInput
                                       className="textin"
                                       type="number"
                                       step="0.01"
@@ -1477,7 +1531,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                               </label>
                               <label className="field-label">
                                 介绍人ID
-                                <input
+                                <AdminTextInput
                                   className="textin"
                                   value={detailForm.referrerId}
                                   onChange={(e) => setField('referrerId', e.target.value)}
@@ -1487,19 +1541,19 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                               <div className="mine-admin-assoc">
                                 <div className="field-label">关联其他ID</div>
                                 <p className="mine-admin-assoc-hint">关联账号表示关联的账号流水也属于这个主播的流水</p>
-                                <input
+                                <AdminTextInput
                                   className="textin"
                                   value={detailForm.linkedId1}
                                   onChange={(e) => setField('linkedId1', e.target.value)}
                                   placeholder="关联 ID 1"
                                 />
-                                <input
+                                <AdminTextInput
                                   className="textin"
                                   value={detailForm.linkedId2}
                                   onChange={(e) => setField('linkedId2', e.target.value)}
                                   placeholder="关联 ID 2"
                                 />
-                                <input
+                                <AdminTextInput
                                   className="textin"
                                   value={detailForm.linkedId3}
                                   onChange={(e) => setField('linkedId3', e.target.value)}
@@ -1514,7 +1568,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                                 {(detailForm.myDageIds.length ? detailForm.myDageIds : ['']).map(
                                   (val, idx) => (
                                     <div className="mine-admin-dage-row" key={`dage-${idx}`}>
-                                      <input
+                                      <AdminTextInput
                                         className="textin"
                                         value={val}
                                         onChange={(e) => {
@@ -1575,7 +1629,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                                   </p>
                                   <label className="field-label">
                                     主播点位
-                                    <input
+                                    <AdminTextInput
                                       className="textin"
                                       type="number"
                                       step="0.001"
@@ -1592,7 +1646,7 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                                   </label>
                                   <label className="field-label">
                                     用户流水点位
-                                    <input
+                                    <AdminTextInput
                                       className="textin"
                                       type="number"
                                       step="0.01"
@@ -1636,14 +1690,16 @@ function AdminUsersPage({ onBack }: { onBack: () => void }) {
                                   {guildSaveMsg ? <div className="mine-admin-ok">{guildSaveMsg}</div> : null}
                                 </div>
                               ) : null}
-                              <button
-                                type="button"
-                                className="mine-admin-save"
-                                disabled={detailSaving}
-                                onClick={() => void saveDetail(u.id)}
-                              >
-                                {detailSaving ? '保存中…' : '保存'}
-                              </button>
+                              {canEdit ? (
+                                <button
+                                  type="button"
+                                  className="mine-admin-save"
+                                  disabled={detailSaving}
+                                  onClick={() => void saveDetail(u.id)}
+                                >
+                                  {detailSaving ? '保存中…' : '保存'}
+                                </button>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>
@@ -4497,6 +4553,9 @@ export function MinePage({
     !isDage && (isAdmin || canAccessRevenueBoardProp || (isHallOwner && !!((hallNo || '').trim())))
   const canAccessPayrollBoard =
     !isDage && (isAdmin || canAccessPayrollBoardProp || isTingGuanProp)
+  // Registration review is available to full admins and hall-scoped 厅管/厅主.
+  const canAccessRegistration =
+    !isDage && (isAdmin || ((isTingGuanProp || isHallOwner) && !!(hallNo || '').trim()))
   const dageMineViews = new Set<MineView>([
     'list',
     'welfare',
@@ -4514,7 +4573,8 @@ export function MinePage({
   const effectiveView =
     isDage && !dageMineViews.has(view)
       ? 'list'
-      : !isAdmin && (view === 'adminActivity' || view === 'adminCommission' || view === 'adminUsers' || view === 'adminLiushui')
+      : (!isAdmin && (view === 'adminActivity' || view === 'adminCommission' || view === 'adminLiushui')) ||
+          (!canAccessRegistration && view === 'adminUsers')
         ? 'list'
         : !canAccessRevenueBoard && view === 'revenueBoard'
           ? 'list'
@@ -4612,7 +4672,7 @@ export function MinePage({
   }
 
   if (effectiveView === 'adminUsers') {
-    return <AdminUsersPage onBack={() => setView('list')} />
+    return <AdminUsersPage onBack={() => setView('list')} canEdit={isAdmin} />
   }
 
   if (effectiveView === 'adminLiushui') {
@@ -4827,7 +4887,7 @@ export function MinePage({
           </div>
         ) : null}
 
-        {showAdminTools ? (
+        {canAccessRegistration ? (
           <div className="mine-group">
             <div className="mine-group-title">管理工具</div>
             <div className="mine-grid">

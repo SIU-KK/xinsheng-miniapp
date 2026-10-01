@@ -1796,7 +1796,7 @@ button { touch-action: manipulation; }
 .mine-admin-name {
   font-size: 15px;
   font-weight: 650;
-  color: #f0f0f2;
+  color: #111827;
   word-break: break-all;
 }
 .mine-admin-meta {
@@ -1954,6 +1954,13 @@ button { touch-action: manipulation; }
   width: 100%;
   box-sizing: border-box;
   margin: 0;
+}
+.mine-admin-form input,
+.mine-admin-form select {
+  /* Keep registration controls hit-testable on Android; the detail card is
+     inside a scroll container but must not turn taps into scroll gestures. */
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 .mine-admin-form-row {
   display: grid;

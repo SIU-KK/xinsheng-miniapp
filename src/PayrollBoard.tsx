@@ -225,23 +225,37 @@ export function PayrollBoardPage({ onBack }: { onBack: () => void }) {
           <section className="mine-sec">
             <h2 className="mine-sec-title">本周汇总</h2>
             <div className="mine-card revenue-summary revenue-overview-summary">
-              <div className="revenue-overview-grid">
-                <div className="revenue-overview-item">
-                  <div className="revenue-overview-label">应到账</div>
-                  <div className="revenue-overview-value">{formatMoney2(data.payableTotal)}</div>
+              {data.summaryScope === 'hall' ? (
+                <div className="revenue-overview-grid">
+                  <div className="revenue-overview-item">
+                    <div className="revenue-overview-label">本厅已发工资</div>
+                    <div className="revenue-overview-value">{formatMoney2(data.paidTotal)}</div>
+                  </div>
+                  <div className="revenue-overview-item">
+                    <div className="revenue-overview-label">本厅未发工资</div>
+                    <div className="revenue-overview-value">{formatMoney2(data.unpaidTotal)}</div>
+                  </div>
                 </div>
-                <div className="revenue-overview-item">
-                  <div className="revenue-overview-label">已发工资</div>
-                  <div className="revenue-overview-value">{formatMoney2(data.paidTotal)}</div>
+              ) : (
+                <div className="revenue-overview-grid">
+                  <div className="revenue-overview-item">
+                    <div className="revenue-overview-label">应到账</div>
+                    <div className="revenue-overview-value">{formatMoney2(data.payableTotal)}</div>
+                  </div>
+                  <div className="revenue-overview-item">
+                    <div className="revenue-overview-label">已发工资</div>
+                    <div className="revenue-overview-value">{formatMoney2(data.paidTotal)}</div>
+                  </div>
+                  <div className="revenue-overview-item">
+                    <div className="revenue-overview-label">未发工资</div>
+                    <div className="revenue-overview-value">{formatMoney2(data.unpaidTotal)}</div>
+                  </div>
+                  <div className="revenue-overview-item">
+                    <div className="revenue-overview-label">差额</div>
+                    <div className="revenue-overview-value">{formatMoney2(data.weekBalance)}</div>
+                  </div>
                 </div>
-                <div className="revenue-overview-item">
-                  <div className="revenue-overview-label">差额</div>
-                  <div className="revenue-overview-value">{formatMoney2(data.weekBalance)}</div>
-                </div>
-              </div>
-              <p className="mine-admin-hint" style={{ marginTop: 8 }}>
-                未发放工资总额 {formatMoney2(data.unpaidTotal)}（列表内未付款合计）
-              </p>
+              )}
             </div>
           </section>
         ) : null}

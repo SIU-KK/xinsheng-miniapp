@@ -292,7 +292,7 @@ function migrateSalaryPayments(database: Database) {
     `CREATE INDEX IF NOT EXISTS idx_salary_payments_batch ON salary_payments(batch_id)`,
   )
   // Existing DBs created before wage snapshot columns — ADD COLUMN, do not wipe.
-  // Streamer paid rows use snapshots; 厅主 rows always calculate live wages and ignore them.
+  // Every paid row uses its captured wage snapshot, including 厅主 rows.
   if (!tableHasColumn(database, 'salary_payments', 'paid_wage')) {
     database.run(`ALTER TABLE salary_payments ADD COLUMN paid_wage REAL`)
   }
@@ -394,9 +394,9 @@ export function getLastBackfillFrozenPaidWagesResult(): BackfillFrozenPaidWagesR
 }
 
 /**
- * Freeze live wages into paid_wage/paid_snapshot for legacy streamer 已付款 rows
- * that predate snapshot columns (paid_wage IS NULL). 厅主 rows are deliberately
- * skipped because their payroll must remain live. Idempotent: only touches NULL
+ * Freeze live wages into paid_wage/paid_snapshot for every legacy 已付款 row
+ * that predates snapshot columns (paid_wage IS NULL), including 厅主 rows.
+ * Idempotent: only touches NULL
  * paid_wage; does not change paid_at / paid_by.
  *
  * When called without `database`, opens the DB (which also runs this once);
@@ -440,26 +440,7 @@ export async function backfillFrozenPaidWages(
       continue
     }
     try {
-      // 厅主 wages are never frozen, including legacy payment rows.
-      const hallOwner = one<{ id: string }>(
-        dbToUse,
-        `SELECT id FROM streamer_profiles
-         WHERE COALESCE(is_hall_owner, 0) = 1
-           AND TRIM(COALESCE(hall_no, '')) != ''
-           AND (
-             streamer_id = ?
-             OR linked_id_1 = ?
-             OR linked_id_2 = ?
-             OR linked_id_3 = ?
-           )
-         LIMIT 1`,
-        [pid, pid, pid, pid],
-      )
-      if (hallOwner) {
-        skipped++
-        continue
-      }
-      const snap = await resolveWageSnapshotForPay(dbToUse, bid, pid, null)
+      const snap = await resolveWageSnapshotForPay(dbToUse, bid, pid)
       if (snap.paidWage == null && snap.paidSnapshot == null) {
         skipped++
         continue
@@ -671,6 +652,41 @@ export async function loginUser(username: string, password: string): Promise<{ o
   return { ok: true, user: { id: row.id, username: row.username }, token }
 }
 
+export type RegistrationAccess =
+  | { ok: true; hallScope: string | null }
+  | { ok: false }
+
+/** Registration review access: full admins see all; 厅管/厅主 see only their own hall. */
+export async function getRegistrationAccess(
+  userId: string,
+  username: string,
+): Promise<RegistrationAccess> {
+  const flags = await getAuthHallFlags(userId, username)
+  if (flags.isFullAdmin) return { ok: true, hallScope: null }
+  if ((flags.isTingGuan || flags.isHallOwner) && flags.hallNo) {
+    return { ok: true, hallScope: flags.hallNo }
+  }
+  return { ok: false }
+}
+
+/** Target gate for scoped registration review; never allows cross-hall approval. */
+export async function canManageRegistrationUser(
+  actorId: string,
+  actorUsername: string,
+  targetUserId: string,
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const access = await getRegistrationAccess(actorId, actorUsername)
+  if (!access.ok) return { ok: false, error: '需要注册审核权限', status: 403 }
+  const rankGate = await canManageAccount(actorId, actorUsername, targetUserId)
+  if (!rankGate.ok) return rankGate
+  if (access.hallScope == null) return { ok: true }
+  const target = await getStreamerProfileByUser(targetUserId)
+  if (!target || target.hallNo.trim() !== access.hallScope) {
+    return { ok: false, error: '只能审核所属本厅的注册账号', status: 403 }
+  }
+  return { ok: true }
+}
+
 export async function listUsersForAdmin(
   actorId?: string,
   actorUsername?: string,
@@ -689,9 +705,15 @@ export async function listUsersForAdmin(
     actorId && actorUsername
       ? await resolveUserPrivilegeRank(actorId, actorUsername)
       : 100
+  const actorAccess = actorId && actorUsername
+    ? await getRegistrationAccess(actorId, actorUsername)
+    : { ok: true as const, hallScope: null }
   const out: AdminUserRow[] = []
   for (const r of rows) {
     const profile = await getStreamerProfileByUser(r.id)
+    if (actorAccess.ok && actorAccess.hallScope != null && (!profile || profile.hallNo.trim() !== actorAccess.hallScope)) {
+      continue
+    }
     const pointRate = profile?.pointRate || ''
     const isHallOwner = !!profile?.isHallOwner
     const privilegeRank = accountPrivilegeRank({
@@ -4926,8 +4948,8 @@ export async function getMySalary(
     }
   }
 
-  // 普通主播已付款后使用快照；厅主工资已由 computeHallOwnerWage live 计算，永不冻结。
-  if (wageSource !== 'hall_revenue' && rowData && picked.id) {
+  // 只要已付款就使用付款时快照；厅主与普通主播一律冻结工资金额。
+  if (rowData && picked.id) {
     migrateSalaryPayments(database)
     const payIds = matchIds.length ? matchIds : collectNonEmptyIds(streamerId)
     if (payIds.length) {
@@ -5336,10 +5358,13 @@ export async function getAuthHallFlags(
   const flags = await getHallOwnerFlags(username)
   const profile = userId ? await getStreamerProfileByUser(userId) : null
   let isHallOwner = flags.isHallOwner
-  let hallNo = flags.hallNo
+  // 所属厅号 applies to every affiliated profile, not only 厅主 accounts.
+  // Keep the server-provided owner flag, but always expose the profile hall ID.
+  const profileHallNo = (profile?.hallNo || '').trim()
+  let hallNo = profileHallNo || flags.hallNo
   if (!isHallOwner && profile?.isHallOwner) {
     isHallOwner = true
-    hallNo = (profile.hallNo || '').trim() || null
+    hallNo = profileHallNo || flags.hallNo
   }
   const pointRate = (profile?.pointRate || '').trim()
   const isDage = isDagePoint(pointRate)
@@ -6672,10 +6697,12 @@ export type PayrollBoardResult = {
   paidTotal: number
   /** Sum of totalWage where paid===false (null wage → 0). */
   unpaidTotal: number
-  /** Revenue board 流水总览 overviewPayableTotal (all halls). */
+  /** 会长：工会收益； scoped viewer：其所属厅的厅收益。 */
   payableTotal: number
-  /** payableTotal − paidTotal. */
+  /** payableTotal − paidTotal for full-admin summary; scoped viewers only receive own-hall totals. */
   weekBalance: number
+  /** Whether the top summary is union-wide or restricted to the requesting hall. */
+  summaryScope: 'all' | 'hall'
 }
 
 type PayrollProfileHit = {
@@ -6778,6 +6805,7 @@ export async function getPayrollBoard(
     unpaidTotal: 0,
     payableTotal: 0,
     weekBalance: 0,
+    summaryScope: hallScope == null ? 'all' : 'hall',
   })
 
   if (!selected) {
@@ -6842,10 +6870,21 @@ export async function getPayrollBoard(
   if (!streamerBatch) {
     const empty = emptyBase(label, monday, sunday, sharedLabel)
     try {
-      const revenue = await getRevenueBoard(year, month, week, '', '', '')
-      const payableTotal = roundMoney(revenue.overviewPayableTotal || 0)
+      const summaryScope = hallScope == null ? 'all' as const : 'hall' as const
+      const revenue = await getRevenueBoard(
+        year,
+        month,
+        week,
+        '',
+        '',
+        summaryScope === 'all' ? '' : hallScope || '',
+      )
+      const payableTotal = roundMoney(
+        summaryScope === 'all' ? revenue.overviewGuildRevenue : revenue.overviewHallTotalReceipts,
+      )
       empty.payableTotal = payableTotal
       empty.weekBalance = payableTotal
+      empty.summaryScope = summaryScope
     } catch {
       /* keep zeros */
     }
@@ -7014,12 +7053,13 @@ export async function getPayrollBoard(
     const paidAt = payHit?.paidAt || null
     const paid = !!(paidAt && paidAt.length)
 
-    // 厅主工资与厅明细始终取当前 live 计算；paid_wage/paid_snapshot
-    // 仅用于非厅主主播，不能冻结厅主金额。
-    const hallOwnerWage = hw.totalWage
-    const hallUserFlow = hw.hallUserFlow
-    const hallStreamerFlow = hw.hallStreamerFlow
-    const hallStreamerWageTotal = hw.hallStreamerWageTotal
+    // 付款后金额与厅明细都固定为付款时快照；未付款才使用当前 live 计算。
+    const paidSnapshot = paid && payHit?.paidSnapshot ? payHit.paidSnapshot : null
+    const hallOwnerWage =
+      paid && payHit?.paidWage != null && Number.isFinite(payHit.paidWage) ? payHit.paidWage : hw.totalWage
+    const hallUserFlow = paidSnapshot?.hallUserFlow ?? hw.hallUserFlow
+    const hallStreamerFlow = paidSnapshot?.hallStreamerFlow ?? hw.hallStreamerFlow
+    const hallStreamerWageTotal = paidSnapshot?.hallStreamerWageTotal ?? hw.hallStreamerWageTotal
 
     const hallFields = {
       isHallOwner: true as const,
@@ -7151,9 +7191,20 @@ export async function getPayrollBoard(
   paidTotal = roundMoney(paidTotal)
   unpaidTotal = roundMoney(unpaidTotal)
 
-  // All-halls admin scope — same overviewPayableTotal as 收益看板「全部」
-  const revenue = await getRevenueBoard(year, month, week, '', '', '')
-  const payableTotal = roundMoney(revenue.overviewPayableTotal || 0)
+  // Full admins see the union-wide payable summary. Scoped viewers must never
+  // receive union-wide totals; their summary is derived from their own-hall rows.
+  const summaryScope = hallScope == null ? 'all' as const : 'hall' as const
+  const summaryRevenue = await getRevenueBoard(
+    year,
+    month,
+    week,
+    '',
+    '',
+    summaryScope === 'all' ? '' : hallScope || '',
+  )
+  const payableTotal = roundMoney(
+    summaryScope === 'all' ? summaryRevenue.overviewGuildRevenue : summaryRevenue.overviewHallTotalReceipts,
+  )
   const weekBalance = roundMoney(payableTotal - paidTotal)
 
   return {
@@ -7177,6 +7228,7 @@ export async function getPayrollBoard(
     unpaidTotal,
     payableTotal,
     weekBalance,
+    summaryScope,
   }
 }
 
@@ -7371,7 +7423,7 @@ async function notifySalaryPaidChat(opts: {
     fineYuan = nullableNum(row.fine_yuan)
     totalWage = frozenWage != null ? frozenWage : nullableNum(row.total_wage)
   } else {
-    // 厅主 without liushui row: use snapshotted wage, else payroll board when period known
+    // 厅主 without liushui row: use the frozen wage, else the current board value
     migrateStreamer(opts.database)
     const hallOwner = one<{ id: string }>(
       opts.database,
@@ -7499,9 +7551,8 @@ export type MarkSalaryPaidResult =
 export type MarkSalaryPaidPeriod = { year: number; month: number; week: number }
 
 /**
- * Live wage the 工资发放 board would show at click time (ignores existing payment rows,
- * so re-mark ON CONFLICT captures the current live amount).
- * 厅主 → computeHallOwnerWage (+ hall 明细 snapshot); else liushui_rows.total_wage.
+ * Capture the live wage shown by the 工资发放 board at payment time.
+ * All rows, including 厅主 rows, receive a frozen wage snapshot.
  */
 async function resolveWageSnapshotForPay(
   database: Database,
@@ -7516,7 +7567,11 @@ async function resolveWageSnapshotForPay(
     period &&
     Number.isFinite(period.year) &&
     Number.isFinite(period.month) &&
-    Number.isFinite(period.week)
+    Number.isFinite(period.week) &&
+    period.month >= 1 &&
+    period.month <= 12 &&
+    period.week >= 1 &&
+    period.week <= 5
       ? { year: Math.trunc(period.year), month: Math.trunc(period.month), week: Math.trunc(period.week) }
       : null
 
@@ -7558,9 +7613,25 @@ async function resolveWageSnapshotForPay(
     [pid, pid, pid, pid],
   )
 
-  if (owner) {
-    // 厅主工资必须在每次读取时 live 重算；不要写入 paid_wage/paid_snapshot。
-    return { paidWage: null, paidSnapshot: null }
+  if (owner && ymw) {
+    const hw = await computeHallOwnerWage(ymw.year, ymw.month, ymw.week, {
+      hallNo: String(owner.hall_no || '').trim(),
+      streamerId: owner.streamer_id,
+      linkedId1: owner.linked_id_1,
+      linkedId2: owner.linked_id_2,
+      linkedId3: owner.linked_id_3,
+      hallPayMode: owner.hall_pay_mode,
+    })
+    if (hw) {
+      return {
+        paidWage: hw.totalWage,
+        paidSnapshot: stringifyHallPaidSnapshot({
+          hallUserFlow: hw.hallUserFlow,
+          hallStreamerFlow: hw.hallStreamerFlow,
+          hallStreamerWageTotal: hw.hallStreamerWageTotal,
+        }),
+      }
+    }
   }
 
   const wageRow = one<{ total_wage: number | null }>(
@@ -7633,6 +7704,17 @@ export async function markSalaryPaid(
     [adminUserId],
   )
   const paidBy = (admin?.username || '').trim() || adminUserId
+
+  // Payment is immutable: never recalculate or overwrite an existing paid amount.
+  const existingPayment = one<{ paid_at: string }>(
+    database,
+    `SELECT paid_at FROM salary_payments WHERE batch_id = ? AND user_platform_id = ?`,
+    [bid, pid],
+  )
+  if (existingPayment?.paid_at) {
+    return { ok: true, paidAt: String(existingPayment.paid_at), batchId: bid, userPlatformId: pid }
+  }
+
   const paidAt = new Date().toISOString()
 
   // Snapshot wage the board would show at click time (before marking paid)

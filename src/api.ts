@@ -2074,6 +2074,8 @@ export type PayrollBoardResponse = {
   unpaidTotal: number
   payableTotal: number
   weekBalance: number
+  /** all = guild-profit summary; hall = own-hall revenue summary for scoped viewers. */
+  summaryScope: 'all' | 'hall'
 }
 
 function asPayrollRow(v: unknown): PayrollBoardRow | null {
@@ -2181,6 +2183,7 @@ export async function fetchPayrollBoard(params: {
     unpaidTotal: asNum(data.unpaidTotal, 0),
     payableTotal: asNum(data.payableTotal, 0),
     weekBalance: asNum(data.weekBalance, 0),
+    summaryScope: data.summaryScope === 'hall' ? 'hall' : 'all',
   }
 }
 

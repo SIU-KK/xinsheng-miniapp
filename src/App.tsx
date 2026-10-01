@@ -97,6 +97,13 @@ function highlightAnalysis(text: string) {
 }
 
 function StatusBar() {
+  // The real phone/browser owns this chrome. Keep the desktop phone mockup's
+  // clock, but never mount the fake bar in a mobile viewport/device.
+  const isMobile =
+    typeof window !== 'undefined' &&
+    (window.matchMedia?.('(max-width: 430px)').matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent))
+  if (isMobile) return null
+
   return (
     <div className="status" aria-hidden="true">
       <span>{nowClock()}</span>

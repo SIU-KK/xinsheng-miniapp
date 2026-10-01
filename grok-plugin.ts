@@ -87,6 +87,8 @@ import {
   isRevenueBoardAdmin,
   isFullAdminAccess,
   canManageAccount,
+  canManageRegistrationUser,
+  getRegistrationAccess,
   canAccessRevenueBoard,
   getAuthHallFlags,
   getRevenueBoardHallScope,
@@ -2141,8 +2143,8 @@ async function handleAppApi(req: IncomingMessage, res: ServerResponse, url: stri
       json(res, 401, { ok: false, error: 'unauthorized' })
       return true
     }
-    if (!(await isFullAdminAccess(user.id, user.username))) {
-      json(res, 403, { ok: false, error: '需要管理员权限' })
+    if (!(await getRegistrationAccess(user.id, user.username)).ok) {
+      json(res, 403, { ok: false, error: '需要注册审核权限（全满/admin/厅管/厅主）' })
       return true
     }
     const users = await listUsersForAdmin(user.id, user.username)
@@ -2158,12 +2160,8 @@ async function handleAppApi(req: IncomingMessage, res: ServerResponse, url: stri
       json(res, 401, { ok: false, error: 'unauthorized' })
       return true
     }
-    if (!(await isFullAdminAccess(user.id, user.username))) {
-      json(res, 403, { ok: false, error: '需要管理员权限' })
-      return true
-    }
     {
-      const gate = await canManageAccount(user.id, user.username, decodeURIComponent(adminDetail[1]))
+      const gate = await canManageRegistrationUser(user.id, user.username, decodeURIComponent(adminDetail[1]))
       if (!gate.ok) {
         json(res, gate.status, { ok: false, error: gate.error })
         return true
@@ -2265,12 +2263,8 @@ async function handleAppApi(req: IncomingMessage, res: ServerResponse, url: stri
       json(res, 401, { ok: false, error: 'unauthorized' })
       return true
     }
-    if (!(await isFullAdminAccess(user.id, user.username))) {
-      json(res, 403, { ok: false, error: '需要管理员权限' })
-      return true
-    }
     {
-      const gate = await canManageAccount(user.id, user.username, decodeURIComponent(adminApprove[1]))
+      const gate = await canManageRegistrationUser(user.id, user.username, decodeURIComponent(adminApprove[1]))
       if (!gate.ok) {
         json(res, gate.status, { ok: false, error: gate.error })
         return true
@@ -2293,12 +2287,8 @@ async function handleAppApi(req: IncomingMessage, res: ServerResponse, url: stri
       json(res, 401, { ok: false, error: 'unauthorized' })
       return true
     }
-    if (!(await isFullAdminAccess(user.id, user.username))) {
-      json(res, 403, { ok: false, error: '需要管理员权限' })
-      return true
-    }
     {
-      const gate = await canManageAccount(user.id, user.username, decodeURIComponent(adminReject[1]))
+      const gate = await canManageRegistrationUser(user.id, user.username, decodeURIComponent(adminReject[1]))
       if (!gate.ok) {
         json(res, gate.status, { ok: false, error: gate.error })
         return true
