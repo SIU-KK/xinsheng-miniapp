@@ -1169,7 +1169,7 @@ function ChatThread({
         {!session.systemNotice ? (
           <div className="hint">点 + 上传聊天截图 · 点黄色块复制发出，再回 1 或 2</div>
         ) : (
-          <div className="hint">系统通知 · 工资发放消息</div>
+          <div className="hint system-notice-hint">系统通知 · 工资发放消息</div>
         )}
         <div ref={endRef} />
       </div>

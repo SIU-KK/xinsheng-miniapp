@@ -4775,6 +4775,7 @@ body {
 .next-main { color: var(--navy); }
 .next-why { color: #5c6578; }
 .hint { color: #8a93a6; }
+.hint.system-notice-hint { color: #000000; }
 .reply:active { background: #eef2fb; }
 .dot { box-shadow: 0 0 6px rgba(56, 201, 104, .35); background: var(--emerald); }
 
