@@ -3691,8 +3691,10 @@ button { touch-action: manipulation; }
 .rank-podium-slot.place-1 .rank-podium-mono {
   font-size: 24px;
 }
+/* Keep rank 2's readable text treatment aligned with the other podium slots;
+   the silver tone remains on its badge, avatar, card, and pedestal. */
 .rank-podium-slot.tone-silver .rank-podium-mono {
-  color: #e8ecf4;
+  color: #4d68b7;
 }
 .rank-podium-slot.tone-bronze .rank-podium-mono {
   color: #4d68b7;
@@ -3772,7 +3774,7 @@ button { touch-action: manipulation; }
   color: #1a2b4a;
 }
 .rank-podium-slot.tone-silver .rank-podium-value {
-  color: #d8deea;
+  color: #4d68b7;
 }
 .rank-podium-slot.tone-bronze .rank-podium-value {
   color: #4d68b7;
