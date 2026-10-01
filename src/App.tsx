@@ -30,7 +30,11 @@ import {
   type AuthUser,
 } from './api'
 import { dropSession } from './storage'
-import { MinePage } from './MineGuide'
+import { AccountHeader, MinePage } from './MineGuide'
+import { MineAssistPage } from './MineAssist'
+import { StreamerProfilesPage } from './StreamerProfiles'
+import { RankingsPage } from './Rankings'
+import { EdgeSwipeBack, useBackHandler, BackScope } from './uxGestures'
 import {
   RELATION_GOAL_OPTIONS,
   RELATION_NOW_OPTIONS,
@@ -40,7 +44,7 @@ import {
 } from './relation'
 import type { BossGender, BotPayload, ChatMessage, Persona, PersonaId, RelationGoal, RelationNow, Session } from './types'
 
-type Tab = 'chat' | 'rec' | 'me'
+type Tab = 'chat' | 'rec' | 'rankings' | 'streamers' | 'me'
 type Stack =
   | { view: 'tabs' }
   | { view: 'settings'; personaId: PersonaId }
@@ -129,6 +133,7 @@ const createWait = new Map<string, Promise<unknown>>()
 const openingJobs = new Map<string, Promise<'ok' | 'fail' | 'unauthorized'>>()
 
 function BibleSheet({ persona, onClose }: { persona: Persona; onClose: () => void }) {
+  useBackHandler(onClose)
   const b = persona.bible
   return (
     <div className="sheet-mask" onClick={onClose} role="presentation">
@@ -183,6 +188,7 @@ function ConfirmDeleteSheet({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  useBackHandler(onCancel)
   return (
     <div className="sheet-mask" onClick={onCancel} role="presentation">
       <div
@@ -214,6 +220,7 @@ function ThreadMoreSheet({
   onDelete: () => void
   onClose: () => void
 }) {
+  useBackHandler(onClose)
   return (
     <div className="sheet-mask" onClick={onClose} role="presentation">
       <div
@@ -279,6 +286,13 @@ function BotBubble({
   onCopy: (text: string, channel?: string) => void
   onRefreshPms?: () => void
 }) {
+  if (msg.bot.coachOpen) {
+    return (
+      <div className="bubble-bot coach-open">
+        <div className="analysis open-line">{msg.bot.analysis}</div>
+      </div>
+    )
+  }
   const coach = coachOf(msg.bot)
   const opening = isOpeningReplies(msg.bot.replies)
   const ask = offersCopyable(msg.bot)
@@ -392,17 +406,25 @@ function BotBubble({
   )
 }
 
-function TabBar({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
+function TabBar({ tab, onTab, isDage = false }: { tab: Tab; onTab: (t: Tab) => void; isDage?: boolean }) {
   return (
     <nav className="tabbar" aria-label="主导航">
-      <button type="button" className={tab === 'chat' ? 'on' : ''} onClick={() => onTab('chat')}>
-        <span className="tab-ico">聊</span>
-        聊天
-      </button>
-      <button type="button" className={tab === 'rec' ? 'on' : ''} onClick={() => onTab('rec')}>
-        <span className="tab-ico">荐</span>
-        推荐
-      </button>
+      {!isDage ? (
+        <>
+          <button type="button" className={tab === 'chat' ? 'on' : ''} onClick={() => onTab('chat')}>
+            <span className="tab-ico">聊</span>
+            聊天
+          </button>
+          <button type="button" className={tab === 'rec' ? 'on' : ''} onClick={() => onTab('rec')}>
+            <span className="tab-ico">荐</span>
+            推荐
+          </button>
+          <button type="button" className={tab === 'rankings' ? 'on' : ''} onClick={() => onTab('rankings')}>
+            <span className="tab-ico">排</span>
+            排名
+          </button>
+        </>
+      ) : null}
       <button type="button" className={tab === 'me' ? 'on' : ''} onClick={() => onTab('me')}>
         <span className="tab-ico">我</span>
         我的
@@ -414,6 +436,13 @@ function TabBar({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
 function SessionList({
   sessions,
   username,
+  userId,
+  isDage = false,
+  isFullAdmin = false,
+  isTingGuan = false,
+  isHallOwner = false,
+  pointRate = '',
+  hallNo = null,
   onOpen,
   onAskDelete,
   onLogout,
@@ -421,6 +450,13 @@ function SessionList({
 }: {
   sessions: Session[]
   username: string
+  userId?: string
+  isDage?: boolean
+  isFullAdmin?: boolean
+  isTingGuan?: boolean
+  isHallOwner?: boolean
+  pointRate?: string
+  hallNo?: string | null
   onOpen: (id: string) => void
   onAskDelete: (session: Session) => void
   onLogout: () => void
@@ -429,16 +465,17 @@ function SessionList({
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
   return (
     <div className="pane">
-      <div className="nav">
-        <span className="nav-side nav-user" title={username}>{username.slice(0, 4)}</span>
-        <div className="title">
-          聊天
-          <small>{username}</small>
-        </div>
-        <button type="button" className="nav-set" onClick={onLogout}>
-          退出
-        </button>
-      </div>
+      <AccountHeader
+        username={username}
+        userId={userId}
+        isDage={isDage}
+        isFullAdmin={isFullAdmin}
+        isTingGuan={isTingGuan}
+        isHallOwner={isHallOwner}
+        pointRate={pointRate}
+        hallNo={hallNo}
+        onLogout={onLogout}
+      />
       <div className="scroll list-scroll">
         {sorted.length === 0 ? (
           <div className="empty-box">
@@ -671,7 +708,7 @@ function ChatThread({
   const [toast, setToast] = useState<string | null>(null)
   const [sheet, setSheet] = useState(false)
   const [more, setMore] = useState(false)
-  const [writing, setWriting] = useState(() => session.messages.length === 0)
+  const [writing, setWriting] = useState(() => session.messages.length === 0 && !session.systemNotice)
   const endRef = useRef<HTMLDivElement>(null)
   const shotRef = useRef<HTMLInputElement>(null)
   const messages = session.messages
@@ -704,6 +741,10 @@ function ChatThread({
     let alive = true
     const sid = session.id
     void (async () => {
+      if (session.systemNotice) {
+        setWriting(false)
+        return
+      }
       let msgs = session.messages
       if (!msgs.length) {
         try {
@@ -1118,9 +1159,14 @@ function ChatThread({
             </button>
           </div>
         ) : null}
-        <div className="hint">点 + 上传聊天截图 · 点黄色块复制发出，再回 1 或 2</div>
+        {!session.systemNotice ? (
+          <div className="hint">点 + 上传聊天截图 · 点黄色块复制发出，再回 1 或 2</div>
+        ) : (
+          <div className="hint">系统通知 · 工资发放消息</div>
+        )}
         <div ref={endRef} />
       </div>
+      {!session.systemNotice ? (
       <form
         className="composer"
         onSubmit={(e) => {
@@ -1162,6 +1208,7 @@ function ChatThread({
           }}
         />
       </form>
+      ) : null}
       {toast ? <div className="toast">{toast}</div> : null}
       {more ? (
         <ThreadMoreSheet
@@ -1183,12 +1230,37 @@ function ChatThread({
 
 
 
+
+function AiFabSparkle() {
+  return (
+    <svg className="ai-fab-ico" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 2.5l1.35 5.1L18.5 9l-5.15 1.4L12 15.5l-1.35-5.1L5.5 9l5.15-1.4L12 2.5Z"
+        fill="currentColor"
+        opacity="0.95"
+      />
+      <path
+        d="M18.2 14.2l.7 2.4 2.4.7-2.4.7-.7 2.4-.7-2.4-2.4-.7 2.4-.7.7-2.4Z"
+        fill="currentColor"
+        opacity="0.75"
+      />
+      <path
+        d="M6.2 15.5l.45 1.55 1.55.45-1.55.45-.45 1.55-.45-1.55-1.55-.45 1.55-.45.45-1.55Z"
+        fill="currentColor"
+        opacity="0.7"
+      />
+    </svg>
+  )
+}
+
 const CAREER_MODAL_KEY = 'xinsheng.careerModal.v1'
 
 type AuthIntent =
   | { kind: 'chat' }
+  | { kind: 'rec' }
   | { kind: 'coach'; coachId: CoachId }
   | { kind: 'mine' }
+  | { kind: 'aiAssist' }
 
 function CareerModal({ onDismiss }: { onDismiss: () => void }) {
   return (
@@ -1300,6 +1372,19 @@ function AuthScreen({
   )
 }
 
+
+/** Standalone shareable streamers wall: a.586248.xyz, or local /wall|/p/* for verify. */
+function isStandaloneStreamersMode(): boolean {
+  if (typeof window === 'undefined') return false
+  const host = (window.location.hostname || '').toLowerCase()
+  if (host === 'a.586248.xyz') return true
+  if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost')) {
+    const p = (window.location.pathname || '/').replace(/\/+/g, '/')
+    if (p === '/wall' || p.startsWith('/wall/') || p.startsWith('/p/')) return true
+  }
+  return false
+}
+
 export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [boot, setBoot] = useState(true)
@@ -1308,6 +1393,7 @@ export default function App() {
   const [stack, setStack] = useState<Stack>({ view: 'tabs' })
   const [pendingDelete, setPendingDelete] = useState<Session | null>(null)
   const [pendingAuth, setPendingAuth] = useState<AuthIntent | null>(null)
+  const [showAiAssist, setShowAiAssist] = useState(false)
   const [showCareer, setShowCareer] = useState(false)
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
@@ -1349,14 +1435,27 @@ export default function App() {
     setShowCareer(false)
   }
 
+  useBackHandler(stack.view !== 'tabs' ? () => setStack({ view: 'tabs' }) : null)
+  useBackHandler(showAiAssist ? () => setShowAiAssist(false) : null)
+  useBackHandler(pendingDelete ? () => setPendingDelete(null) : null)
+  useBackHandler(showCareer ? () => dismissCareer() : null)
+
   async function afterAuth(next: AuthUser) {
     setUser(next)
     const intent = pendingAuth
     setPendingAuth(null)
     try {
-      setSessions(await fetchThreads())
+      setSessions(next.isDage ? [] : await fetchThreads())
     } catch {
       setSessions([])
+    }
+    if (next.isDage) {
+      setTab('me')
+      setStack({ view: 'tabs' })
+      setShowAiAssist(false)
+      setShowCareer(false)
+      setPendingDelete(null)
+      return
     }
     if (intent?.kind === 'coach') {
       setTab('rec')
@@ -1364,6 +1463,11 @@ export default function App() {
     } else if (intent?.kind === 'mine') {
       setTab('me')
       setStack({ view: 'tabs' })
+    } else if (intent?.kind === 'rec') {
+      setTab('rec')
+      setStack({ view: 'tabs' })
+    } else if (intent?.kind === 'aiAssist') {
+      setShowAiAssist(true)
     } else {
       setTab('chat')
       setStack({ view: 'tabs' })
@@ -1378,6 +1482,7 @@ export default function App() {
     setTab('me')
     setPendingDelete(null)
     setPendingAuth(null)
+    setShowAiAssist(false)
   }
 
   function kickIfUnauthorized(e: unknown) {
@@ -1398,10 +1503,21 @@ export default function App() {
   }, [stack, sessions])
 
   function goTab(t: Tab) {
+    if (user?.isDage && t !== 'me' && t !== 'streamers') {
+      setTab('me')
+      setStack({ view: 'tabs' })
+      setPendingAuth(null)
+      return
+    }
     setStack({ view: 'tabs' })
-    if (t === 'chat' && !user) {
-      setTab('chat')
-      setPendingAuth({ kind: 'chat' })
+    if (t === 'streamers') {
+      setTab('me')
+      setPendingAuth(null)
+      return
+    }
+    if ((t === 'chat' || t === 'rec') && !user) {
+      setTab(t)
+      setPendingAuth({ kind: t === 'rec' ? 'rec' : 'chat' })
       return
     }
     setPendingAuth(null)
@@ -1494,11 +1610,34 @@ export default function App() {
     createWait.set(id, created)
   }
 
-  const needAuthPane = !user && (tab === 'chat' || pendingAuth != null)
+  useEffect(() => {
+    if (tab === 'streamers') setTab('me')
+  }, [tab])
+
+  useEffect(() => {
+    if (!user?.isDage) return
+    if (tab !== 'me') setTab('me')
+    if (stack.view !== 'tabs') setStack({ view: 'tabs' })
+    if (showAiAssist) setShowAiAssist(false)
+  }, [user?.isDage, tab, stack.view, showAiAssist])
+
+  const needAuthPane = !user && (tab === 'chat' || tab === 'rec' || tab === 'rankings' || pendingAuth != null)
 
   let body: ReactNode
   if (needAuthPane) {
     body = <AuthScreen onAuthed={(u) => void afterAuth(u)} />
+  } else if (user?.isDage) {
+    body = (
+      <MinePage
+        key="dage-mine"
+        username={user.username}
+        userId={user.id}
+        isDage
+        pointRate={user.pointRate}
+        hallNo={user.hallNo}
+        onLogout={() => void doLogout()}
+      />
+    )
   } else if (stack.view === 'settings' && settingsPersona) {
     body = (
       <NewBossSettings
@@ -1550,11 +1689,22 @@ export default function App() {
         }}
       />
     )
-  } else if (tab === 'me') {
+  } else if (tab === 'rankings') {
+    body = <RankingsPage />
+  } else if (tab === 'me' || tab === 'streamers') {
     body = (
       <MinePage
         key={tab}
         username={user?.username || ''}
+        userId={user?.id || ''}
+        isDage={Boolean(user?.isDage)}
+        canAccessRevenueBoard={Boolean(user?.canAccessRevenueBoard)}
+        canAccessPayrollBoard={Boolean(user?.canAccessPayrollBoard)}
+        isFullAdmin={Boolean(user?.isFullAdmin)}
+        isTingGuan={Boolean(user?.isTingGuan)}
+        isHallOwner={Boolean(user?.isHallOwner)}
+        pointRate={user?.pointRate || ''}
+        hallNo={user?.hallNo ?? null}
         onLogout={() => void doLogout()}
         onLogin={() => setPendingAuth({ kind: 'mine' })}
       />
@@ -1564,11 +1714,33 @@ export default function App() {
       <SessionList
         sessions={sessions}
         username={user?.username || ''}
+        userId={user?.id || ''}
+        isDage={Boolean(user?.isDage)}
+        isFullAdmin={Boolean(user?.isFullAdmin)}
+        isTingGuan={Boolean(user?.isTingGuan)}
+        isHallOwner={Boolean(user?.isHallOwner)}
+        pointRate={user?.pointRate || ''}
+        hallNo={user?.hallNo ?? null}
         onOpen={(id) => setStack({ view: 'thread', sessionId: id })}
         onAskDelete={setPendingDelete}
         onLogout={() => void doLogout()}
         onGoRec={() => goTab('rec')}
       />
+    )
+  }
+
+  const standaloneStreamers = isStandaloneStreamersMode()
+
+  if (standaloneStreamers) {
+    return (
+      <EdgeSwipeBack>
+        <div className="app-stage">
+          <div className="phone phone-standalone">
+            <StatusBar />
+            <StreamerProfilesPage />
+          </div>
+        </div>
+      </EdgeSwipeBack>
     )
   }
 
@@ -1585,21 +1757,45 @@ export default function App() {
     )
   }
 
+  function openAiAssist() {
+    if (user?.isDage) return
+    if (!user) {
+      setPendingAuth({ kind: 'aiAssist' })
+      return
+    }
+    setShowAiAssist(true)
+  }
+
   return (
-    <div className="app-stage">
-      <div className="phone">
-        <StatusBar />
-        {body}
-        {stack.view === 'tabs' ? <TabBar tab={tab} onTab={goTab} /> : null}
-        {pendingDelete ? (
-          <ConfirmDeleteSheet
-            bossName={pendingDelete.bossName}
-            onCancel={() => setPendingDelete(null)}
-            onConfirm={confirmDeleteSession}
-          />
-        ) : null}
-        {showCareer ? <CareerModal onDismiss={dismissCareer} /> : null}
+    <EdgeSwipeBack>
+      <div className="app-stage">
+        <div className="phone">
+          <StatusBar />
+          {body}
+          {stack.view === 'tabs' ? <TabBar tab={tab === 'streamers' ? 'me' : tab} onTab={goTab} isDage={Boolean(user?.isDage)} /> : null}
+          {!showAiAssist && !user?.isDage ? (
+            <button type="button" className="ai-fab" onClick={openAiAssist} aria-label="AI解答">
+              <AiFabSparkle />
+              <span className="ai-fab-label">AI</span>
+            </button>
+          ) : null}
+          {showAiAssist && !user?.isDage ? (
+            <div className="ai-assist-overlay" role="dialog" aria-label="AI解答">
+              <BackScope>
+                <MineAssistPage onBack={() => setShowAiAssist(false)} />
+              </BackScope>
+            </div>
+          ) : null}
+          {pendingDelete && !user?.isDage ? (
+            <ConfirmDeleteSheet
+              bossName={pendingDelete.bossName}
+              onCancel={() => setPendingDelete(null)}
+              onConfirm={confirmDeleteSession}
+            />
+          ) : null}
+          {showCareer && !user?.isDage ? <CareerModal onDismiss={dismissCareer} /> : null}
+        </div>
       </div>
-    </div>
+    </EdgeSwipeBack>
   )
 }

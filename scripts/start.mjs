@@ -1,8 +1,11 @@
 import { spawn } from 'node:child_process'
+import path from 'node:path'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const viteCli = require.resolve('vite/bin/vite.js')
+// Vite 7 no longer exports ./bin/vite.js; resolve via package.json then join.
+const viteRoot = path.dirname(require.resolve('vite/package.json'))
+const viteCli = path.join(viteRoot, 'bin', 'vite.js')
 const port = process.env.PORT || '5173'
 
 const child = spawn(

@@ -169,6 +169,7 @@ export interface Session {
   /** 推荐页助聊会话 */
   coachKind?: CoachKind
   bossGender?: BossGender
-  /** 本局人设：来自所选助聊卡的 hostWhoFixed，非用户手填 */
   hostWho?: string
+  /** 系统/工资通知线程：只展示消息，不走助聊模型 */
+  systemNotice?: boolean
 }
